@@ -84,13 +84,9 @@ def main():
     train_data_path = 'dataset\PreprocessedData.h5'
     val_data_path = 'dataset\PreprocessedData_val.h5'
     eval_data_path = 'dataset\PreprocessedData_eval.h5'
-    
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    config.gpu_options.per_process_gpu_memory_fraction = 0.4
-    #session = tf.Session(config=config, ...)
 
-    with tf.Session(config=config) as sess:
+
+    with tf.Session() as sess:
         sess.run(tf.local_variables_initializer())
         sess.run(tf.global_variables_initializer())
         iteration = 0
@@ -152,12 +148,12 @@ def main():
         #             # Each 10000 times evaluate model
                     if iteration % args.log_freq == 0:
         #                 # Loop over eval dataset
-                        # for batch_idx in range(0, len(val_data_set) - args.batch_size + 1, args.batch_size): 
-                        # # Test every log-freq iterations
-                             # val_error = evaluate_model(sr_loss, val_data_set[batch_idx:batch_idx + 16], val_data_label_set[batch_idx:batch_idx + 16], \
-                                                        # sess, 124, args.batch_size)
-                             # eval_error = evaluate_model(sr_loss,eval_data_set[batch_idx:batch_idx + 16], eval_data_label_set[batch_idx:batch_idx + 16],\
-                                                        # sess, 124, args.batch_size)
+                        for batch_idx in range(0, len(val_data_set) - args.batch_size + 1, args.batch_size): 
+        #                 # # Test every log-freq iterations
+                             val_error = evaluate_model(sr_loss, val_data_set[batch_idx:batch_idx + 16], val_data_label_set[batch_idx:batch_idx + 16], \
+                                                        sess, 124, args.batch_size)
+                             eval_error = evaluate_model(sr_loss,eval_data_set[batch_idx:batch_idx + 16], eval_data_label_set[batch_idx:batch_idx + 16],\
+                                                        sess, 124, args.batch_size)
         #                 val_error_li.append(val_error)
         #                 eval_error_li.append(eval_error)
 
@@ -179,7 +175,7 @@ def main():
         #                 # # print()
         #                 # # # Write to log
                         with open(log_path + '/loss.csv', 'a') as f:
-                            f.write('%d, %s\n' % (iteration, log_line))
+                            f.write('%d, %.15f, %.15f%s\n' % (iteration, val_error, eval_error, log_line))
         #                 # # Save checkpoint
                         saver.save(sess, os.path.join(log_path, 'weights'), global_step=iteration, write_meta_graph=False)
                     
