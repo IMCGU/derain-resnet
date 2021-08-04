@@ -7,19 +7,19 @@ from skimage.color import rgb2ycbcr, rgb2yuv
 
 from skimage.measure import compare_psnr
 from utils import preprocess, downsample, sobel_oper, modcrop, dwt_shape, cany_oper, sobel_direct_oper,\
- batch_Idwt, batch_dwt,dwt_shape, up_sample,up_sample_batch,psnr,calculate_psnr, batch_Swt
+ batch_Idwt, batch_dwt,dwt_shape, up_sample,up_sample_batch,psnr,calculate_psnr, batch_Swt,batch_ISwt
 
 import tensorflow as tf
 import pywt
 import cv2
-
+import time
 class Benchmark:
     """A collection of images to test a model on."""
 
     def __init__(self, path_train, path_label, name):
         # self.path_train = path_train
         # self.path_label = path_label
-
+        """model='in'對應test data中檔名的結尾"""
         self.name = name
         # self.images_lr, self.names = self.load_images_by_model(model='LR')
         self.images_rain, self.names = self.load_images_by_model(path_train, model='in')
@@ -49,7 +49,7 @@ class Benchmark:
         """Deprocess image output by model (from -1 to 1 float to 0 to 255 uint8)"""
         image = np.clip(255 * 0.5 * (image + 1.0), 0.0, 255.0).astype(np.uint8)
         return image
-
+    """小波分解後會產生黑邊，所以邊界要crop pixel"""
     def luminance(self, image):
         # Get luminance
         lum = rgb2ycbcr(image)[:, :, 0]
@@ -87,6 +87,8 @@ class Benchmark:
         individual_psnr = []
         individual_ssim = []
 
+        print('Length of gt: %s'%len(gt))
+        print('Length of pred: %s'%len(pred))
         for i in range(len(pred)):
             # compare to gt
             psnr = self.PSNR(self.luminance(gt[i]), self.luminance(pred[i]))
@@ -135,13 +137,14 @@ class Benchmark:
             # Save low res
             path = os.path.join(log_path, self.name, name, '%d_rain.png' % iteration)
             self.save_image(lr, path)
-
+            """count可以決定要存多少張test results"""
             # Hack so that we only do first 14 images in BSD100 instead of the whole thing
             count += 1
-            if count >= 14:
+            # if count >= 14:
+            if count >= 20:    
                 break
 
-    def evaluate(self, sess, sr_out_pred, sr_BCD_pred, sr_pred, log_path=None, iteration=0):
+    def evaluate(self, sess, y_pred_level_2, y_pred_level_1, log_path=None, iteration=0):
         """Evaluate benchmark, returning the score and saving images."""
 
         pred = []
@@ -151,19 +154,29 @@ class Benchmark:
 
         for i, rain in enumerate(self.images_rain):
             # feed images 1 by 1 because they have different sizes
-            rain_dwt = batch_Swt(rain[np.newaxis])
+            rain_swt = batch_Swt(rain[np.newaxis], level=2)
 
-            rain_A = np.stack([rain_dwt[:,:,:,0], rain_dwt[:,:,:,4], rain_dwt[:,:,:,8]], axis=-1)
-            rain_dwt_A_BCD = np.concatenate([rain_dwt[:,:,:,1:4], rain_dwt[:,:,:,5:8], rain_dwt[:,:,:,9:12]], axis=-1)
+            # rain_A = np.stack([rain_dwt[:,:,:,0], rain_dwt[:,:,:,4], rain_dwt[:,:,:,8]], axis=-1)
+            # rain_dwt_A_BCD = np.concatenate([rain_dwt[:,:,:,1:4], rain_dwt[:,:,:,5:8], rain_dwt[:,:,:,9:12]], axis=-1)
 
-            rain_A /= 255.
-            rain_dwt_A_BCD /= 255.
+            rain_swt /= 255.
+            # rain_dwt_A_BCD /= 255.
 
-            derain_A, derain_BCD, derain = sess.run([sr_out_pred, sr_BCD_pred, sr_pred], feed_dict={'srresnet_training:0': False,\
-                                                'LR_DWT_A:0': rain_A,\
-                                                'LR_DWT_edge:0': rain_dwt_A_BCD,\
-                                                # 'LR_edge:0': lr_edge[np.newaxis]
-                                                })
+            derain_level_2, derain_level_1 = \
+                sess.run([y_pred_level_2, y_pred_level_1], \
+                feed_dict={'srresnet_training:0': False,\
+                           'LR_SWT:0': rain_swt,\
+                            })
+            derain_concat = np.concatenate([derain_level_2, derain_level_1], axis=-1)
+            # derain_level_2_result = np.concatenate([derain_level_2_LL, derain_level_2_edge], axis=-1)
+            # derain_level_1_result = np.concatenate([derain_level_1_LL, derain_level_1_edge], axis=-1)
+
+
+            # derain_concat = np.concatenate([derain_level_2_result, derain_level_1_result], axis=-1)
+            print('__DEBUG__',derain_concat.shape)
+            derain_concat *= 255.
+            
+            derain = batch_ISwt(derain_concat)
 
             # print('__DEBUG__ Benchmark evaluate', output.shape)
             # print('___debug___')
@@ -188,7 +201,6 @@ class Benchmark:
             '''__DEBUG__'''
             derain = np.squeeze(derain, axis=0)
             # sr /= np.abs(sr).max()
-            derain *= 255.
             # cv2.imshow('__DEBUG__', sr.astype('uint8'))
             # cv2.waitKey(0)
             ''''''
@@ -199,7 +211,7 @@ class Benchmark:
 
             result = np.clip(derain,0,255).astype(np.uint8) 
 
-            print('__SUCESS__')
+            print('__SUCESS__%d'%i)
 
             # LH = np.abs(sr_BCD[:,:,0])
             # HL = np.abs(sr_BCD[:,:,1])
